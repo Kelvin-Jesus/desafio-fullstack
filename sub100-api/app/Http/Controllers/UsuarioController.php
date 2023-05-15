@@ -7,6 +7,7 @@ use App\Models\Usuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Termwind\Components\Dd;
+use DateTimeImmutable;
 
 class UsuarioController extends Controller {
     public function listarUsuario($idUsuario) {
@@ -23,7 +24,7 @@ class UsuarioController extends Controller {
     }
 
     public function listarTodosOsUsuarios() {
-        $usuarios = Usuario::paginate(10);
+        $usuarios = Usuario::orderBy('updated_at', 'desc')->paginate(5);
 
         return response()->json($usuarios);
     }
@@ -33,10 +34,10 @@ class UsuarioController extends Controller {
             'nome' => 'required|string|max:255',
             'email' => 'required|string|unique:usuario|max:255|regex:/^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/|',
             'senha' => 'required|string|max:255',
-            'data_nascimento' => 'required|date',
+            'dataNascimento' => 'required|string',
             'cpf' => 'required|string|regex:/^[0-9]{3}\.[0-9]{3}\.[0-9]{3}\-[0-9]{2}$/',
-            'telefone' => 'required|string|regex:/^[0-9]{2}\s[0-9]{4,5}\-[0-9]{4}$/',
-            'cep' => 'required|string|max:8',
+            'telefone' => 'required|string|regex:/^[0-9]{2}[0-9]{4,5}[0-9]{4}$/',
+            'cep' => 'required|string|max:9',
             'rua' => 'required|string|max:255',
             'numero' => 'required|string|max:255',
             'bairro' => 'required|string|max:255',
@@ -48,11 +49,14 @@ class UsuarioController extends Controller {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $dataNascimennto = (new DateTimeImmutable($request->input('dataNascimento')))
+            ->format('Y-m-d');
+
         $usuario = Usuario::create([
             'nome' => $request->input('nome'),
             'email' => $request->input('email'),
-            'senha' => $request->input('senha'),
-            'data_nascimento' => $request->input('data_nascimento'),
+            'senha' => password_hash($request->input('senha'), PASSWORD_DEFAULT),
+            'data_nascimento' => $dataNascimennto,
             'cpf' => $request->input('cpf'),
             'telefone' => $request->input('telefone'),
             'cep' => $request->input('cep'),
@@ -76,25 +80,53 @@ class UsuarioController extends Controller {
     public function atualizarUsuario(Request $request, $idUsuario) {
         $validator = Validator::make($request->all(), [
             'nome' => 'string|max:255',
-            'email' => 'string|unique:usuario|max:255|regex:/^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$/|',
-            'senha' => 'string|max:255',
-            'data_nascimento' => 'date',
+            'email' => 'sometimes|unique:usuario|max:255',
+            'senha' => 'sometimes|max:255',
+            'data_nascimento' => 'required|date_format:d/m/Y|before:today',
             'cpf' => 'string|regex:/^[0-9]{3}\.[0-9]{3}\.[0-9]{3}\-[0-9]{2}$/',
-            'telefone' => 'string|regex:/^[0-9]{2}\s[0-9]{4,5}\-[0-9]{4}$/',
-            'cep' => 'string|max:8',
+            'telefone' => 'string|regex:/^\([1-9]{2}\) [2-9][0-9]{3}\-[0-9]{4}$/',
+            'cep' => 'string|max:9',
             'rua' => 'string|max:255',
             'numero' => 'string|max:255',
             'bairro' => 'string|max:255',
             'cidade' => 'string|max:255',
             'estado' => 'string|max:255',
+            'mae' => 'sometimes|max:255',
+            'pai' => 'sometimes|max:255',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $atualizarUsuario = Usuario::where('id', $idUsuario)->update($request->all());
-        if ( !$atualizarUsuario ) {
+        $fillableFields = [
+            'nome',
+            'senha',
+            'data_nascimento',
+            'cpf',
+            'telefone',
+            'cep',
+            'rua',
+            'numero',
+            'bairro',
+            'cidade',
+            'estado',
+            'mae',
+            'pai',
+        ];
+
+        $usuario = Usuario::findOrFail($idUsuario);
+        $usuario->fill($request->only($fillableFields));
+        $dataNascimennto = strtotime($request->input('data_nascimento'));
+        $usuario->data_nascimento = date('Y-m-d', $dataNascimennto);
+
+        if ( $request->has('senha') ) {
+            $usuario->senha = password_hash($request->input('senha'), PASSWORD_DEFAULT);
+        }
+
+        $usuario->email = $request->input('email') ? $request->input('email') : $usuario->email;
+
+        if ( !$usuario->save() ) {
             return response()->json(['message' => 'Erro ao atualizar usuário'], 500);
         }
 
